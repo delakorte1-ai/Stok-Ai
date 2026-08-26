@@ -5,8 +5,12 @@
 # ---- Stage 1: build frontend jadi file statis ----
 FROM node:20-alpine AS frontend-build
 WORKDIR /app/frontend
+
+# Batasi memory Node saat install & build supaya tidak OOM (exit code 137)
+ENV NODE_OPTIONS="--max-old-space-size=512"
+
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci --no-audit --no-fund --prefer-offline
 COPY frontend/ ./
 RUN npm run build
 
@@ -14,9 +18,11 @@ RUN npm run build
 FROM node:20-alpine AS runtime
 WORKDIR /app/backend
 
+ENV NODE_OPTIONS="--max-old-space-size=512"
+
 # Dependency backend
 COPY backend/package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund
 
 # Prisma schema & generate client (butuh koneksi internet saat build, normal di platform hosting)
 COPY backend/prisma ./prisma
