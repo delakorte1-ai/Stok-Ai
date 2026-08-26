@@ -9,7 +9,8 @@ RUN apk add --no-cache python3 make g++
 
 # Dependency backend
 COPY backend/package*.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+RUN apk add --no-cache python3 make g++
+RUN npm install --omit=dev
 
 # Prisma schema & generate client
 COPY backend/prisma ./prisma
