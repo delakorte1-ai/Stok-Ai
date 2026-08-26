@@ -1,0 +1,146 @@
+// Prisma schema untuk Sistem Manajemen Stok multi-tenant
+// Database: SQLite untuk development. Untuk production, ganti provider ke "postgresql"
+// dan url ke env("DATABASE_URL") dengan connection string Postgres — tidak perlu ubah model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// PERUSAHAAN (tenant)
+// ---------------------------------------------------------------------------
+model Perusahaan {
+  id        String   @id @default(cuid())
+  nama      String
+  jenisUsaha String? // label bebas, misal "Toko Ban & Velg" — tidak memengaruhi logic
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  kategoriProduk   KategoriProduk[]
+  produk           Produk[]
+  transaksiStok    TransaksiStok[]
+
+  @@map("perusahaan")
+}
+
+// ---------------------------------------------------------------------------
+// USER (role & permission)
+// ---------------------------------------------------------------------------
+enum RoleUser {
+  owner
+  karyawan
+}
+
+model User {
+  id           String   @id @default(cuid())
+  perusahaanId String
+  nama         String
+  email        String   @unique
+  passwordHash String
+  role         RoleUser @default(karyawan)
+  aktif        Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  perusahaan    Perusahaan      @relation(fields: [perusahaanId], references: [id], onDelete: Cascade)
+  transaksiStok TransaksiStok[]
+
+  @@map("user")
+}
+
+// ---------------------------------------------------------------------------
+// KATEGORI PRODUK (custom per perusahaan, tidak hardcode)
+// ---------------------------------------------------------------------------
+enum ModeStok {
+  reguler
+  unit_unik
+}
+
+model KategoriProduk {
+  id           String   @id @default(cuid())
+  perusahaanId String
+  nama         String
+  modeStok     ModeStok @default(reguler)
+  createdAt    DateTime @default(now())
+
+  perusahaan Perusahaan @relation(fields: [perusahaanId], references: [id], onDelete: Cascade)
+  produk     Produk[]
+
+  @@unique([perusahaanId, nama])
+  @@map("kategori_produk")
+}
+
+// ---------------------------------------------------------------------------
+// PRODUK
+// ---------------------------------------------------------------------------
+enum StatusUnitUnik {
+  tersedia
+  habis
+}
+
+model Produk {
+  id                String   @id @default(cuid())
+  perusahaanId      String
+  kategoriId        String
+  nama              String
+  modal             Float    @default(0)
+  hargaJualDefault  Float?
+  // Reguler:
+  stok              Int?     // hanya dipakai untuk mode reguler
+  stokMinimum       Int?     @default(0) // threshold notifikasi stok menipis (reguler)
+  // Unit unik:
+  kondisi           String?  // opsional, khusus unit_unik (misal: "second 80%")
+  statusUnitUnik    StatusUnitUnik? // hanya dipakai untuk mode unit_unik
+  // paket gabungan (misal velg + ban second dijual sebagai satu produk unit unik)
+  isPaket           Boolean  @default(false)
+  keteranganPaket   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  perusahaan    Perusahaan      @relation(fields: [perusahaanId], references: [id], onDelete: Cascade)
+  kategori      KategoriProduk  @relation(fields: [kategoriId], references: [id], onDelete: Restrict)
+  transaksiStok TransaksiStok[]
+
+  @@map("produk")
+}
+
+// ---------------------------------------------------------------------------
+// TRANSAKSI STOK (log riwayat, sumber kebenaran untuk laporan)
+// ---------------------------------------------------------------------------
+enum JenisTransaksi {
+  masuk
+  keluar
+  penyesuaian
+}
+
+enum SumberTransaksi {
+  manual
+  chat_ai
+  import_massal
+}
+
+model TransaksiStok {
+  id               String          @id @default(cuid())
+  perusahaanId     String
+  produkId         String
+  userId           String?
+  jenisTransaksi   JenisTransaksi
+  jumlah           Int             @default(1)
+  hargaJualSaatIni Float?          // snapshot harga jual saat transaksi (untuk 'keluar')
+  modalSaatIni     Float           // snapshot modal saat transaksi (untuk laporan untung-rugi akurat)
+  keterangan       String?
+  sumber           SumberTransaksi @default(manual)
+  waktu            DateTime        @default(now())
+
+  perusahaan Perusahaan @relation(fields: [perusahaanId], references: [id], onDelete: Cascade)
+  produk     Produk     @relation(fields: [produkId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("transaksi_stok")
+}
